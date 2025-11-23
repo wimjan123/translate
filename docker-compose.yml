@@ -1,0 +1,53 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - PORT=4000
+      - DATABASE_URL=postgresql://postgres:password@db:5432/translator
+      - NEXT_PUBLIC_SOCKET_URL=https://translation.polibase.nl
+    networks:
+      - traefik_proxy
+      - internal_net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik_traefik-network"
+      - "traefik.http.routers.translator.rule=Host(`translation.polibase.nl`)"
+      - "traefik.http.routers.translator.entrypoints=websecure"
+      - "traefik.http.routers.translator.tls=true"
+      - "traefik.http.routers.translator.tls.certresolver=letsencrypt"
+      - "traefik.http.services.translator.loadbalancer.server.port=4000"
+      - "traefik.http.middlewares.translator-https.redirectscheme.scheme=https"
+      - "traefik.http.routers.translator-http.entrypoints=web"
+      - "traefik.http.routers.translator-http.rule=Host(`translation.polibase.nl`)"
+      - "traefik.http.routers.translator-http.middlewares=translator-https"
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: translator
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - internal_net
+
+  libretranslate:
+    image: libretranslate/libretranslate:latest
+    environment:
+      - LT_LOAD_ONLY=en,fr,es,de,it,pt
+      - LT_DISABLE_WEB_UI=false
+    networks:
+      - internal_net
+    restart: unless-stopped
+
+networks:
+  traefik_proxy:
+    external: true
+    name: traefik_traefik-network
+  internal_net:
+
+volumes:
+  db_data:
