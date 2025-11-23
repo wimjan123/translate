@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import { useLiveSession } from '@/context/LiveSessionContext';
 
 export function TranscriptView() {
-  const { transcripts } = useLiveSession();
+  const { transcripts, recordingStartTime } = useLiveSession();
   const originalRef = useRef<HTMLDivElement>(null);
   const translatedRef = useRef<HTMLDivElement>(null);
 
@@ -18,11 +18,14 @@ export function TranscriptView() {
     }
   }, [transcripts]);
 
-  const formatTime = (ms: number) => {
-    const seconds = Math.floor(ms / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+  const formatTime = (offsetMs: number) => {
+    if (!recordingStartTime) return '--:--';
+    const timestamp = new Date(recordingStartTime + offsetMs);
+    return timestamp.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
   };
 
   return (

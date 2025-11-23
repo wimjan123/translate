@@ -11,6 +11,7 @@ interface LiveSessionContextType {
   error: string | null;
   sessionId: string | null;
   timer: number;
+  recordingStartTime: number | null;
   startRecording: () => Promise<void>;
   stopRecording: () => void;
   clearTranscripts: () => void;
@@ -43,6 +44,8 @@ export function LiveSessionProvider({ children, settings }: LiveSessionProviderP
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const deepgramReadyRef = useRef(false);
+  const recordingStartTimeRef = useRef<number | null>(null);
 
   // Initialize Socket.io connection
   useEffect(() => {
@@ -71,6 +74,7 @@ export function LiveSessionProvider({ children, settings }: LiveSessionProviderP
     socket.on('disconnect', () => {
       console.log('Socket disconnected');
       setIsConnected(false);
+      deepgramReadyRef.current = false;
     });
 
     socket.on('error', (data) => {
@@ -99,6 +103,7 @@ export function LiveSessionProvider({ children, settings }: LiveSessionProviderP
 
     socket.on('deepgram-ready', () => {
       console.log('Deepgram connection ready');
+      deepgramReadyRef.current = true;
     });
 
     socketRef.current = socket;
@@ -172,9 +177,11 @@ export function LiveSessionProvider({ children, settings }: LiveSessionProviderP
         : new MediaRecorder(stream);
 
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0 && socketRef.current) {
+        if (event.data.size > 0 && socketRef.current && deepgramReadyRef.current) {
           console.log('Sending audio chunk:', event.data.size, 'bytes');
           socketRef.current.emit('audio-chunk', event.data);
+        } else if (event.data.size > 0 && !deepgramReadyRef.current) {
+          console.log('Deepgram not ready yet, buffering chunk...');
         }
       };
 
@@ -185,6 +192,7 @@ export function LiveSessionProvider({ children, settings }: LiveSessionProviderP
 
       mediaRecorder.start(500); // Send chunks every 500ms
       mediaRecorderRef.current = mediaRecorder;
+      recordingStartTimeRef.current = Date.now();
       setIsRecording(true);
       setError(null);
       console.log('Recording started');
@@ -206,6 +214,7 @@ export function LiveSessionProvider({ children, settings }: LiveSessionProviderP
       streamRef.current = null;
     }
 
+    recordingStartTimeRef.current = null;
     setIsRecording(false);
   };
 
@@ -221,6 +230,7 @@ export function LiveSessionProvider({ children, settings }: LiveSessionProviderP
     error,
     sessionId,
     timer,
+    recordingStartTime: recordingStartTimeRef.current,
     startRecording,
     stopRecording,
     clearTranscripts,

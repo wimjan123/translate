@@ -87,7 +87,7 @@ export default function SessionDetailPage() {
     if (!session) return;
 
     // Get settings from localStorage
-    const settingsStr = localStorage.getItem('translation-settings');
+    const settingsStr = localStorage.getItem('live-translation-settings');
     if (!settingsStr) {
       setPolishError('Please configure your API keys in Settings first');
       return;

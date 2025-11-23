@@ -1,24 +1,39 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { Mic, Square } from 'lucide-react';
 import { useLiveSession } from '@/context/LiveSessionContext';
 
 export function LiveControls() {
-  const { isRecording, timer, startRecording, stopRecording, clearTranscripts } = useLiveSession();
+  const { isRecording, startRecording, stopRecording, clearTranscripts } = useLiveSession();
+  const [currentTime, setCurrentTime] = useState(new Date());
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  // Update time every second when recording
+  useEffect(() => {
+    if (isRecording) {
+      const interval = setInterval(() => {
+        setCurrentTime(new Date());
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [isRecording]);
+
+  const formatTime = () => {
+    return currentTime.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    });
   };
 
   return (
     <div className="flex flex-col items-center justify-center py-12 md:py-16 space-y-8">
-      {/* Timer Display */}
+      {/* Time Display */}
       {isRecording && (
         <div className="glass px-8 py-4 rounded-2xl">
           <div className="text-5xl md:text-7xl font-mono font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-500">
-            {formatTime(timer)}
+            {formatTime()}
           </div>
         </div>
       )}
