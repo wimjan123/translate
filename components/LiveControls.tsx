@@ -1,89 +1,75 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Mic, MicOff, Trash2 } from 'lucide-react';
+import { Mic, Square } from 'lucide-react';
+import { useLiveSession } from '@/context/LiveSessionContext';
 
-interface LiveControlsProps {
-  isConnected: boolean;
-  isRecording: boolean;
-  onStartRecording: () => void;
-  onStopRecording: () => void;
-  onClear: () => void;
-}
-
-export function LiveControls({
-  isConnected,
-  isRecording,
-  onStartRecording,
-  onStopRecording,
-  onClear,
-}: LiveControlsProps) {
-  const [recordingTime, setRecordingTime] = useState(0);
-
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isRecording) {
-      interval = setInterval(() => {
-        setRecordingTime((prev) => prev + 1);
-      }, 1000);
-    } else {
-      setRecordingTime(0);
-    }
-    return () => clearInterval(interval);
-  }, [isRecording]);
+export function LiveControls() {
+  const { isRecording, timer, startRecording, stopRecording, clearTranscripts } = useLiveSession();
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
   return (
-    <div className="flex items-center gap-4">
-      {/* Connection Status */}
-      <div className="flex items-center gap-2">
-        <span className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-        <span className="text-sm text-gray-600">
-          {isConnected ? 'Connected' : 'Disconnected'}
-        </span>
-      </div>
-
-      {/* Recording Timer */}
+    <div className="flex flex-col items-center justify-center py-12 md:py-16 space-y-8">
+      {/* Timer Display */}
       {isRecording && (
-        <div className="flex items-center gap-2 px-3 py-1 bg-red-50 border border-red-200 rounded-lg">
-          <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-          <span className="text-sm font-mono text-red-700">{formatTime(recordingTime)}</span>
+        <div className="glass px-8 py-4 rounded-2xl">
+          <div className="text-5xl md:text-7xl font-mono font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-500">
+            {formatTime(timer)}
+          </div>
         </div>
       )}
 
-      {/* Start/Stop Button */}
-      {!isRecording ? (
-        <button
-          onClick={onStartRecording}
-          disabled={!isConnected}
-          className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          <Mic className="w-5 h-5" />
-          Start Recording
-        </button>
-      ) : (
-        <button
-          onClick={onStopRecording}
-          className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-        >
-          <MicOff className="w-5 h-5" />
-          Stop Recording
-        </button>
-      )}
+      {/* Mic Button */}
+      <div className="relative">
+        {/* Glow effect when recording */}
+        {isRecording && (
+          <div className="absolute inset-0 rounded-full bg-red-500/30 blur-2xl animate-pulse" />
+        )}
 
-      {/* Clear Button */}
-      <button
-        onClick={onClear}
-        className="flex items-center gap-2 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-      >
-        <Trash2 className="w-5 h-5" />
-        Clear
-      </button>
+        <button
+          onClick={isRecording ? stopRecording : startRecording}
+          className={`relative w-20 h-20 md:w-24 md:h-24 rounded-full flex items-center justify-center transition-all duration-300 ${
+            isRecording
+              ? 'bg-red-500/20 border-2 border-red-500 hover:bg-red-500/30'
+              : 'bg-cyan-500/10 border-2 border-cyan-400 hover:bg-cyan-500/20 hover:shadow-lg hover:shadow-cyan-500/50'
+          }`}
+          aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+        >
+          {isRecording ? (
+            <Square className="w-8 h-8 md:w-10 md:h-10 text-red-500 fill-red-500" />
+          ) : (
+            <Mic className="w-8 h-8 md:w-10 md:h-10 text-cyan-400" />
+          )}
+        </button>
+      </div>
+
+      {/* Status Text */}
+      <div className="text-center space-y-4">
+        <p className="text-sm md:text-base text-slate-400">
+          {isRecording ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              Recording...
+            </span>
+          ) : (
+            'Click the microphone to start recording'
+          )}
+        </p>
+
+        {/* Clear Button */}
+        {!isRecording && (
+          <button
+            onClick={clearTranscripts}
+            className="px-4 py-2 text-sm border border-white/10 rounded-lg text-slate-400 hover:text-slate-200 hover:border-white/20 transition-all duration-300"
+          >
+            Clear Transcripts
+          </button>
+        )}
+      </div>
     </div>
   );
 }

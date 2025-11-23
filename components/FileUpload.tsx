@@ -60,16 +60,24 @@ export function FileUpload({ onFileSelect, isUploading }: FileUploadProps) {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={`
-          border-2 border-dashed rounded-lg p-12 text-center transition-colors
-          ${isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-gray-50'}
-          ${isUploading ? 'opacity-50 pointer-events-none' : ''}
+          border-2 border-dashed rounded-xl p-12 text-center transition-all duration-300
+          ${
+            isDragging
+              ? 'border-cyan-400/50 bg-cyan-500/10'
+              : 'border-white/10 bg-black/20'
+          }
+          ${isUploading ? 'opacity-50 pointer-events-none' : 'hover:border-white/20'}
         `}
       >
-        <Upload className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-        <p className="text-lg font-medium text-gray-700 mb-2">
+        <Upload
+          className={`w-16 h-16 mx-auto mb-4 transition-colors duration-300 ${
+            isDragging ? 'text-cyan-400' : 'text-slate-500'
+          }`}
+        />
+        <p className="text-lg font-medium text-slate-200 mb-2">
           Drop audio file here or click to browse
         </p>
-        <p className="text-sm text-gray-500 mb-4">
+        <p className="text-sm text-slate-400 mb-4">
           Supports: MP3, WAV, M4A, WebM, OGG
         </p>
         <input
@@ -82,19 +90,21 @@ export function FileUpload({ onFileSelect, isUploading }: FileUploadProps) {
         />
         <label
           htmlFor="file-input"
-          className="inline-block px-6 py-3 bg-blue-600 text-white rounded-lg cursor-pointer hover:bg-blue-700 transition-colors"
+          className="inline-block px-6 py-3 bg-cyan-500/20 border border-cyan-500/50 text-cyan-400 rounded-lg cursor-pointer hover:bg-cyan-500/30 transition-all duration-300"
         >
           Browse Files
         </label>
       </div>
 
       {selectedFile && (
-        <div className="flex items-center justify-between p-4 bg-white border rounded-lg">
+        <div className="flex items-center justify-between p-4 card-dark">
           <div className="flex items-center gap-3">
-            <FileAudio className="w-8 h-8 text-blue-600" />
+            <div className="p-2 rounded-lg bg-indigo-500/20 border border-indigo-500/50">
+              <FileAudio className="w-6 h-6 text-indigo-400" />
+            </div>
             <div>
-              <p className="font-medium text-gray-900">{selectedFile.name}</p>
-              <p className="text-sm text-gray-500">
+              <p className="font-medium text-slate-200">{selectedFile.name}</p>
+              <p className="text-sm text-slate-400">
                 {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
               </p>
             </div>
@@ -103,16 +113,16 @@ export function FileUpload({ onFileSelect, isUploading }: FileUploadProps) {
             <button
               onClick={handleUpload}
               disabled={isUploading}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              className="px-4 py-2 bg-cyan-500/20 border border-cyan-500/50 text-cyan-400 rounded-lg hover:bg-cyan-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300"
             >
               {isUploading ? 'Processing...' : 'Upload & Translate'}
             </button>
             <button
               onClick={handleClear}
               disabled={isUploading}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-2 hover:bg-white/5 rounded-lg transition-all duration-300 disabled:opacity-50"
             >
-              <X className="w-5 h-5 text-gray-600" />
+              <X className="w-5 h-5 text-slate-400" />
             </button>
           </div>
         </div>

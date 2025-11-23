@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Calendar, Clock, Sparkles } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, Sparkles, AlertCircle } from 'lucide-react';
 
 interface TranscriptSegment {
   id: string;
@@ -143,20 +143,21 @@ export default function SessionDetailPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-lg text-gray-600">Loading session...</div>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-slate-400">Loading session...</div>
       </div>
     );
   }
 
   if (error || !session) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-lg text-red-600 mb-4">Error: {error || 'Session not found'}</div>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center glass border border-red-500/50 rounded-xl p-8 max-w-md mx-4">
+          <AlertCircle className="w-16 h-16 mx-auto mb-4 text-red-400" />
+          <div className="text-lg text-red-300 mb-6">Error: {error || 'Session not found'}</div>
           <button
             onClick={() => router.push('/sessions')}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+            className="px-6 py-3 bg-cyan-500/20 border border-cyan-500/50 text-cyan-400 rounded-lg hover:bg-cyan-500/30 transition-all duration-300"
           >
             Back to Sessions
           </button>
@@ -166,31 +167,33 @@ export default function SessionDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className="min-h-screen">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <button
           onClick={() => router.push('/sessions')}
-          className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6 transition"
+          className="flex items-center gap-2 text-slate-400 hover:text-slate-200 mb-6 transition-all duration-300"
         >
           <ArrowLeft className="w-5 h-5" />
           <span>Back to Sessions</span>
         </button>
 
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h1 className="text-2xl font-bold text-gray-900">Session Details</h1>
+        <div className="glass border border-white/5 rounded-xl p-6 mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+            <h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-500">
+              Session Details
+            </h1>
             {canPolish && (
               <button
                 onClick={handlePolish}
                 disabled={polishing}
-                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:from-purple-700 hover:to-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500/20 to-indigo-500/20 border border-purple-500/50 text-purple-300 rounded-lg hover:from-purple-500/30 hover:to-indigo-500/30 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Sparkles className="w-5 h-5" />
                 <span>{polishing ? 'Polishing...' : 'Polish with LLM'}</span>
               </button>
             )}
             {hasPolishedTranslations && (
-              <div className="flex items-center gap-2 px-4 py-2 bg-green-100 text-green-700 rounded-lg">
+              <div className="flex items-center gap-2 px-4 py-2 bg-green-500/20 border border-green-500/50 text-green-400 rounded-lg">
                 <Sparkles className="w-5 h-5" />
                 <span>Polished with LLM</span>
               </div>
@@ -198,88 +201,103 @@ export default function SessionDetailPage() {
           </div>
 
           {polishError && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-              {polishError}
+            <div className="mb-4 glass border border-red-500/50 rounded-xl p-3">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <p className="text-red-300 text-sm">{polishError}</p>
+              </div>
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             <div className="flex items-center gap-3">
-              <Calendar className="w-5 h-5 text-gray-400" />
+              <div className="p-2 rounded-lg bg-cyan-500/20 border border-cyan-500/50">
+                <Calendar className="w-5 h-5 text-cyan-400" />
+              </div>
               <div>
-                <div className="text-sm text-gray-500">Date</div>
-                <div className="font-medium">{formatDate(session.createdAt)}</div>
+                <div className="text-sm text-slate-400">Date</div>
+                <div className="font-medium text-slate-200">{formatDate(session.createdAt)}</div>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
-              <Clock className="w-5 h-5 text-gray-400" />
+              <div className="p-2 rounded-lg bg-indigo-500/20 border border-indigo-500/50">
+                <Clock className="w-5 h-5 text-indigo-400" />
+              </div>
               <div>
-                <div className="text-sm text-gray-500">Time</div>
-                <div className="font-medium">{formatTime(session.createdAt)}</div>
+                <div className="text-sm text-slate-400">Time</div>
+                <div className="font-medium text-slate-200">{formatTime(session.createdAt)}</div>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
-              <Clock className="w-5 h-5 text-gray-400" />
+              <div className="p-2 rounded-lg bg-purple-500/20 border border-purple-500/50">
+                <Clock className="w-5 h-5 text-purple-400" />
+              </div>
               <div>
-                <div className="text-sm text-gray-500">Duration</div>
-                <div className="font-medium">{formatDuration(session.duration)}</div>
+                <div className="text-sm text-slate-400">Duration</div>
+                <div className="font-medium text-slate-200">{formatDuration(session.duration)}</div>
               </div>
             </div>
           </div>
 
-          <div className="mt-4 pt-4 border-t border-gray-100">
-            <div className="text-sm text-gray-500">Segments</div>
-            <div className="font-medium text-lg">{session.segmentCount}</div>
+          <div className="mt-6 pt-6 border-t border-white/5">
+            <div className="text-sm text-slate-400">Total Segments</div>
+            <div className="font-medium text-lg text-slate-200">{session.segmentCount}</div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white rounded-lg shadow">
-            <div className="bg-gray-100 px-6 py-4 border-b">
-              <h2 className="text-lg font-semibold">Original (French)</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Original Language */}
+          <div className="rounded-xl overflow-hidden border border-white/5">
+            <div className="glass px-6 py-4 border-b border-white/5">
+              <h2 className="text-lg font-semibold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-indigo-500">
+                Original (French)
+              </h2>
             </div>
-            <div className="p-6 space-y-4 max-h-[600px] overflow-y-auto">
+            <div className="p-6 space-y-4 max-h-[600px] overflow-y-auto bg-[#121214]">
               {session.segments.length === 0 ? (
-                <p className="text-gray-400 text-center py-8">No segments recorded</p>
+                <p className="text-slate-500 text-center py-8">No segments recorded</p>
               ) : (
-                session.segments.map((segment, idx) => (
-                  <div key={segment.id} className="pb-4 border-b border-gray-100 last:border-0">
-                    <div className="text-xs text-gray-500 mb-2">
+                session.segments.map((segment) => (
+                  <div key={segment.id} className="pb-4 border-b border-white/5 last:border-0">
+                    <div className="text-xs text-indigo-400 mb-2 font-mono">
                       {formatTime(segment.startTime)}
                     </div>
-                    <p className="text-gray-900">{segment.originalText}</p>
+                    <p className="text-slate-200 leading-relaxed">{segment.originalText}</p>
                   </div>
                 ))
               )}
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow">
-            <div className="bg-blue-50 px-6 py-4 border-b border-blue-100">
-              <h2 className="text-lg font-semibold text-blue-900">Translation (English)</h2>
+          {/* Translated Language */}
+          <div className="rounded-xl overflow-hidden border border-white/5">
+            <div className="glass px-6 py-4 border-b border-white/5">
+              <h2 className="text-lg font-semibold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-cyan-500">
+                Translation (English)
+              </h2>
             </div>
-            <div className="p-6 space-y-4 max-h-[600px] overflow-y-auto">
+            <div className="p-6 space-y-4 max-h-[600px] overflow-y-auto bg-black/40">
               {session.segments.length === 0 ? (
-                <p className="text-gray-400 text-center py-8">No translations available</p>
+                <p className="text-slate-500 text-center py-8">No translations available</p>
               ) : (
-                session.segments.map((segment, idx) => (
-                  <div key={segment.id} className="pb-4 border-b border-gray-100 last:border-0">
-                    <div className="text-xs text-blue-600 mb-2">
+                session.segments.map((segment) => (
+                  <div key={segment.id} className="pb-4 border-b border-white/5 last:border-0">
+                    <div className="text-xs text-cyan-400 mb-2 font-mono">
                       {formatTime(segment.startTime)}
                     </div>
                     <div>
-                      <div className="text-xs text-gray-500 mb-1">Instant Translation:</div>
-                      <p className="text-gray-900">{segment.translatedText}</p>
+                      <div className="text-xs text-slate-500 mb-1">Instant Translation:</div>
+                      <p className="text-slate-200 leading-relaxed">{segment.translatedText}</p>
                     </div>
                     {segment.polishedText && (
-                      <div className="mt-3 p-3 bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg border border-purple-200">
+                      <div className="mt-3 p-3 bg-gradient-to-r from-purple-500/10 to-indigo-500/10 rounded-lg border border-purple-500/30">
                         <div className="flex items-center gap-2 mb-1">
-                          <Sparkles className="w-4 h-4 text-purple-600" />
-                          <div className="text-xs font-medium text-purple-700">LLM Polished:</div>
+                          <Sparkles className="w-4 h-4 text-purple-400" />
+                          <div className="text-xs font-medium text-purple-300">LLM Polished:</div>
                         </div>
-                        <p className="text-gray-900">{segment.polishedText}</p>
+                        <p className="text-slate-200 leading-relaxed">{segment.polishedText}</p>
                       </div>
                     )}
                   </div>
