@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { X, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import type { AppSettings } from '@/src/types/settings';
 import { fetchOpenRouterModels, groupModelsByProvider, type OpenRouterModel } from '@/src/lib/openrouter-models';
+import axios from 'axios';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -17,6 +18,11 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const [models, setModels] = useState<OpenRouterModel[]>([]);
   const [loadingModels, setLoadingModels] = useState(true);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const [testingConnection, setTestingConnection] = useState<'deepgram' | 'openrouter' | null>(null);
+  const [connectionResults, setConnectionResults] = useState<{
+    deepgram?: { success: boolean; message: string };
+    openrouter?: { success: boolean; message: string };
+  }>({});
 
   // Fetch OpenRouter models on component mount
   useEffect(() => {
@@ -36,8 +42,116 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
 
   if (!isOpen) return null;
 
+  const testDeepgramConnection = async () => {
+    setTestingConnection('deepgram');
+    setConnectionResults((prev) => ({ ...prev, deepgram: undefined }));
+
+    try {
+      const response = await axios.post(
+        'https://api.deepgram.com/v1/listen',
+        new ArrayBuffer(0),
+        {
+          headers: {
+            Authorization: `Token ${formData.deepgramKey}`,
+            'Content-Type': 'audio/wav',
+          },
+        }
+      );
+
+      setConnectionResults((prev) => ({
+        ...prev,
+        deepgram: { success: true, message: 'Deepgram API key is valid!' },
+      }));
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        setConnectionResults((prev) => ({
+          ...prev,
+          deepgram: { success: false, message: 'Invalid Deepgram API key' },
+        }));
+      } else if (axios.isAxiosError(error) && error.response?.status === 400) {
+        // 400 means auth passed but request was bad (expected)
+        setConnectionResults((prev) => ({
+          ...prev,
+          deepgram: { success: true, message: 'Deepgram API key is valid!' },
+        }));
+      } else {
+        setConnectionResults((prev) => ({
+          ...prev,
+          deepgram: { success: false, message: 'Failed to verify Deepgram connection' },
+        }));
+      }
+    } finally {
+      setTestingConnection(null);
+    }
+  };
+
+  const testOpenRouterConnection = async () => {
+    setTestingConnection('openrouter');
+    setConnectionResults((prev) => ({ ...prev, openrouter: undefined }));
+
+    try {
+      // Make a minimal test completion request to validate the API key
+      const response = await axios.post(
+        'https://openrouter.ai/api/v1/chat/completions',
+        {
+          model: formData.openRouterModel || 'google/gemini-flash-1.5',
+          messages: [{ role: 'user', content: 'test' }],
+          max_tokens: 1,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${formData.openRouterKey}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://translation.polibase.nl',
+          },
+        }
+      );
+
+      setConnectionResults((prev) => ({
+        ...prev,
+        openrouter: { success: true, message: 'OpenRouter API key is valid!' },
+      }));
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        const errorData = error.response?.data;
+
+        if (status === 401 || status === 403) {
+          setConnectionResults((prev) => ({
+            ...prev,
+            openrouter: { success: false, message: 'Invalid OpenRouter API key' },
+          }));
+        } else if (errorData?.error?.message) {
+          setConnectionResults((prev) => ({
+            ...prev,
+            openrouter: { success: false, message: `Error: ${errorData.error.message}` },
+          }));
+        } else {
+          setConnectionResults((prev) => ({
+            ...prev,
+            openrouter: { success: false, message: `Failed to verify connection (Status: ${status})` },
+          }));
+        }
+      } else {
+        setConnectionResults((prev) => ({
+          ...prev,
+          openrouter: { success: false, message: 'Failed to verify OpenRouter connection' },
+        }));
+      }
+    } finally {
+      setTestingConnection(null);
+    }
+  };
+
   const handleSave = () => {
-    onSave(formData);
+    // Trim all API keys to remove whitespace
+    const trimmedData = {
+      ...formData,
+      deepgramKey: formData.deepgramKey.trim(),
+      openRouterKey: formData.openRouterKey.trim(),
+    };
+
+    onSave(trimmedData);
     onClose();
   };
 
@@ -63,13 +177,39 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">API Key</label>
-                <input
-                  type="password"
-                  value={formData.deepgramKey}
-                  onChange={(e) => setFormData({ ...formData, deepgramKey: e.target.value })}
-                  className="w-full px-4 py-2 input-dark rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all duration-300"
-                  placeholder="Enter Deepgram API key"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={formData.deepgramKey}
+                    onChange={(e) => setFormData({ ...formData, deepgramKey: e.target.value })}
+                    className="flex-1 px-4 py-2 input-dark rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all duration-300"
+                    placeholder="Enter Deepgram API key"
+                  />
+                  <button
+                    onClick={testDeepgramConnection}
+                    disabled={!formData.deepgramKey || testingConnection === 'deepgram'}
+                    className="px-4 py-2 bg-indigo-500/20 border border-indigo-500/50 text-indigo-400 rounded-lg hover:bg-indigo-500/30 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {testingConnection === 'deepgram' ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Testing...
+                      </>
+                    ) : (
+                      'Test'
+                    )}
+                  </button>
+                </div>
+                {connectionResults.deepgram && (
+                  <div className={`mt-2 flex items-center gap-2 text-sm ${connectionResults.deepgram.success ? 'text-green-400' : 'text-red-400'}`}>
+                    {connectionResults.deepgram.success ? (
+                      <CheckCircle2 className="w-4 h-4" />
+                    ) : (
+                      <XCircle className="w-4 h-4" />
+                    )}
+                    {connectionResults.deepgram.message}
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">Model</label>
@@ -93,13 +233,50 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">API Key</label>
-                <input
-                  type="password"
-                  value={formData.openRouterKey}
-                  onChange={(e) => setFormData({ ...formData, openRouterKey: e.target.value })}
-                  className="w-full px-4 py-2 input-dark rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all duration-300"
-                  placeholder="Enter OpenRouter API key"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={formData.openRouterKey}
+                    onChange={(e) => setFormData({ ...formData, openRouterKey: e.target.value })}
+                    className="flex-1 px-4 py-2 input-dark rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all duration-300"
+                    placeholder="sk-or-v1-..."
+                  />
+                  <button
+                    onClick={testOpenRouterConnection}
+                    disabled={!formData.openRouterKey || testingConnection === 'openrouter'}
+                    className="px-4 py-2 bg-indigo-500/20 border border-indigo-500/50 text-indigo-400 rounded-lg hover:bg-indigo-500/30 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {testingConnection === 'openrouter' ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Testing...
+                      </>
+                    ) : (
+                      'Test'
+                    )}
+                  </button>
+                </div>
+                {connectionResults.openrouter && (
+                  <div className={`mt-2 flex items-center gap-2 text-sm ${connectionResults.openrouter.success ? 'text-green-400' : 'text-red-400'}`}>
+                    {connectionResults.openrouter.success ? (
+                      <CheckCircle2 className="w-4 h-4" />
+                    ) : (
+                      <XCircle className="w-4 h-4" />
+                    )}
+                    {connectionResults.openrouter.message}
+                  </div>
+                )}
+                <p className="text-xs text-slate-400 mt-2">
+                  Get your API key from{' '}
+                  <a
+                    href="https://openrouter.ai/keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-cyan-400 hover:text-cyan-300 underline"
+                  >
+                    openrouter.ai/keys
+                  </a>
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">Model</label>

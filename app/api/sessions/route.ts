@@ -8,7 +8,11 @@ export async function GET() {
         createdAt: 'desc',
       },
       include: {
-        segments: true,
+        segments: {
+          orderBy: {
+            startTime: 'asc',
+          },
+        },
       },
     });
 

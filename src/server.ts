@@ -26,6 +26,93 @@ app.prepare().then(async () => {
   await fastify.register(multipart);
   await fastify.register(cors, { origin: '*' });
 
+  // Polish Session Route (direct Fastify endpoint to avoid Next.js conflicts)
+  fastify.post('/api/sessions/:id/polish', async (req, reply) => {
+    try {
+      const { id } = req.params as { id: string };
+      const body = req.body as any;
+      const { openRouterKey, openRouterModel, sourceLang, targetLang } = body;
+
+      if (!openRouterKey || !openRouterModel) {
+        return reply.code(400).send({ error: 'Missing API keys or model' });
+      }
+
+      // Fetch session with segments ORDERED BY TIME
+      const session = await prisma.session.findUnique({
+        where: { id },
+        include: {
+          segments: {
+            orderBy: { startTime: 'asc' }, // Ensure chronological order
+          },
+        },
+      });
+
+      if (!session) {
+        return reply.code(404).send({ error: 'Session not found' });
+      }
+
+      if (session.segments.length === 0) {
+        return reply.code(400).send({ error: 'No segments to polish' });
+      }
+
+      // Combine all segments with numbered markers for batch processing
+      const numberedSegments = session.segments
+        .map((seg, idx) => `[SEGMENT_${idx + 1}]\n${seg.originalText}\n[END_SEGMENT_${idx + 1}]`)
+        .join('\n\n');
+
+      // Send ALL segments in one API call with full context
+      const polishedResponse = await translateText({
+        text: numberedSegments,
+        sourceLang: sourceLang || 'fr',
+        targetLang: targetLang || 'en',
+        model: openRouterModel,
+        apiKey: openRouterKey,
+        isPolishing: true,
+        isBatch: true, // New flag for batch mode
+      });
+
+      // Parse the response back into individual segments
+      const segmentPattern = /\[SEGMENT_(\d+)\]([\s\S]*?)\[END_SEGMENT_\d+\]/g;
+      const polishedSegmentsMap = new Map<number, string>();
+
+      let match;
+      while ((match = segmentPattern.exec(polishedResponse)) !== null) {
+        const segmentNum = parseInt(match[1]);
+        const polishedText = match[2].trim();
+        polishedSegmentsMap.set(segmentNum - 1, polishedText); // 0-indexed
+      }
+
+      // Update all segments in parallel with proper error handling
+      const updatePromises = session.segments.map(async (segment, idx) => {
+        const polishedText = polishedSegmentsMap.get(idx) || segment.translatedText; // Fallback to translated text if parsing failed
+
+        if (!polishedSegmentsMap.has(idx)) {
+          fastify.log.warn(`Failed to parse polished text for segment ${idx + 1}, using original translation`);
+        }
+
+        return prisma.transcriptSegment.update({
+          where: { id: segment.id },
+          data: { polishedText },
+        });
+      });
+
+      const updatedSegments = await Promise.all(updatePromises);
+
+      return reply.send({
+        success: true,
+        segmentsPolished: updatedSegments.length,
+        segments: updatedSegments,
+      });
+    } catch (error) {
+      fastify.log.error(error, 'Failed to polish session');
+
+      // Pass through the actual error message from OpenRouter API
+      const errorMessage = error instanceof Error ? error.message : 'Failed to polish session';
+
+      return reply.code(500).send({ error: errorMessage });
+    }
+  });
+
   // File Upload Route
   fastify.post('/api/upload', async (req, reply) => {
     try {
@@ -176,20 +263,9 @@ app.prepare().then(async () => {
         return;
       }
 
-      // Create database session
-      let dbSession;
-      try {
-        dbSession = await prisma.session.create({
-          data: {},
-        });
-        console.log('Created database session:', dbSession.id);
-        socket.emit('session-created', { sessionId: dbSession.id });
-      } catch (error) {
-        console.error('Failed to create session:', error);
-        socket.emit('error', { message: 'Failed to create session' });
-        socket.disconnect();
-        return;
-      }
+      // Session will be created lazily on first audio chunk
+      let dbSession: any = null;
+      let sessionCreated = false;
 
       // Initialize Deepgram with dynamic config
       const deepgram = createClient(deepgramKey);
@@ -245,30 +321,32 @@ app.prepare().then(async () => {
               isFinal: true,
             };
 
-            // Save to database
-            try {
-              await prisma.transcriptSegment.create({
-                data: {
-                  sessionId: dbSession.id,
-                  startTime: now,
-                  endTime: now,
-                  originalText: transcript,
-                  translatedText: instantTranslation,
-                  isFinal: true,
-                },
-              });
+            // Save to database (only if session was created)
+            if (sessionCreated && dbSession) {
+              try {
+                await prisma.transcriptSegment.create({
+                  data: {
+                    sessionId: dbSession.id,
+                    startTime: now,
+                    endTime: now,
+                    originalText: transcript,
+                    translatedText: instantTranslation,
+                    isFinal: true,
+                  },
+                });
 
-              // Update session segment count
-              await prisma.session.update({
-                where: { id: dbSession.id },
-                data: {
-                  segmentCount: { increment: 1 },
-                },
-              });
+                // Update session segment count
+                await prisma.session.update({
+                  where: { id: dbSession.id },
+                  data: {
+                    segmentCount: { increment: 1 },
+                  },
+                });
 
-              console.log('Saved segment to database');
-            } catch (error) {
-              console.error('Failed to save segment:', error);
+                console.log('Saved segment to database');
+              } catch (error) {
+                console.error('Failed to save segment:', error);
+              }
             }
 
             socket.emit('instant-translation', segment);
@@ -284,7 +362,24 @@ app.prepare().then(async () => {
         socket.emit('error', { message: 'Transcription error' });
       });
 
-      socket.on('audio-chunk', (data) => {
+      socket.on('audio-chunk', async (data) => {
+        // Create session lazily on first audio chunk
+        if (!sessionCreated) {
+          try {
+            dbSession = await prisma.session.create({
+              data: {},
+            });
+            sessionCreated = true;
+            sessionStartTime = Date.now(); // Reset start time when recording actually begins
+            console.log('Created database session on first audio chunk:', dbSession.id);
+            socket.emit('session-created', { sessionId: dbSession.id });
+          } catch (error) {
+            console.error('Failed to create session:', error);
+            socket.emit('error', { message: 'Failed to create session' });
+            return;
+          }
+        }
+
         if (dgConnection.getReadyState() === 1) {
           console.log('Received audio chunk, sending to Deepgram');
           dgConnection.send(data);
@@ -297,16 +392,33 @@ app.prepare().then(async () => {
         console.log('Client disconnected', socket.id);
         dgConnection.finish();
 
-        // Update session duration
-        try {
-          const duration = Math.floor((Date.now() - sessionStartTime) / 1000); // seconds
-          await prisma.session.update({
-            where: { id: dbSession.id },
-            data: { duration },
-          });
-          console.log('Updated session duration:', duration, 'seconds');
-        } catch (error) {
-          console.error('Failed to update session duration:', error);
+        // Clean up session
+        if (sessionCreated && dbSession) {
+          try {
+            // Fetch session to check segment count
+            const session = await prisma.session.findUnique({
+              where: { id: dbSession.id },
+              select: { segmentCount: true },
+            });
+
+            if (session && session.segmentCount === 0) {
+              // Delete session with 0 segments
+              await prisma.session.delete({
+                where: { id: dbSession.id },
+              });
+              console.log('Deleted empty session:', dbSession.id);
+            } else {
+              // Update session duration for sessions with segments
+              const duration = Math.floor((Date.now() - sessionStartTime) / 1000); // seconds
+              await prisma.session.update({
+                where: { id: dbSession.id },
+                data: { duration },
+              });
+              console.log('Updated session duration:', duration, 'seconds');
+            }
+          } catch (error) {
+            console.error('Failed to clean up session:', error);
+          }
         }
       });
     });
