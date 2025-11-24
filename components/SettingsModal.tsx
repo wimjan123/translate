@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { X, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import type { AppSettings } from '@/src/types/settings';
 import { fetchOpenRouterModels, groupModelsByProvider, type OpenRouterModel } from '@/src/lib/openrouter-models';
+import { INPUT_LANGUAGES, OUTPUT_LANGUAGES } from '@/src/lib/language-config';
 import axios from 'axios';
 
 interface SettingsModalProps {
@@ -326,11 +327,11 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                   onChange={(e) => setFormData({ ...formData, inputLang: e.target.value })}
                   className="w-full px-4 py-2 input-dark rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-300"
                 >
-                  <option value="fr">French</option>
-                  <option value="es">Spanish</option>
-                  <option value="de">German</option>
-                  <option value="it">Italian</option>
-                  <option value="pt">Portuguese</option>
+                  {INPUT_LANGUAGES.map(lang => (
+                    <option key={lang.code} value={lang.code}>
+                      {lang.label}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>
@@ -340,33 +341,78 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                   onChange={(e) => setFormData({ ...formData, outputLang: e.target.value })}
                   className="w-full px-4 py-2 input-dark rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all duration-300"
                 >
-                  <option value="en">English</option>
-                  <option value="fr">French</option>
-                  <option value="es">Spanish</option>
-                  <option value="de">German</option>
+                  {OUTPUT_LANGUAGES.map(lang => (
+                    <option key={lang.code} value={lang.code}>
+                      {lang.label}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
           </div>
 
-          {/* Translation Options */}
+          {/* Live Polishing Settings */}
           <div>
-            <h3 className="text-lg font-semibold text-slate-200 mb-3">Translation Options</h3>
+            <h3 className="text-lg font-semibold text-slate-200 mb-3">Live Polishing Settings</h3>
             <div className="space-y-3">
               <label className="flex items-start gap-3 cursor-pointer p-3 rounded-lg hover:bg-white/5 transition-all duration-300">
                 <input
                   type="checkbox"
-                  checked={formData.enablePolishing}
-                  onChange={(e) => setFormData({ ...formData, enablePolishing: e.target.checked })}
+                  checked={formData.enableLivePolishing}
+                  onChange={(e) => setFormData({ ...formData, enableLivePolishing: e.target.checked })}
                   className="mt-1 w-4 h-4 text-cyan-500 bg-black/40 border-white/10 rounded focus:ring-2 focus:ring-cyan-500"
                 />
                 <div>
-                  <span className="text-sm font-medium text-slate-200">Enable LLM Polishing</span>
+                  <span className="text-sm font-medium text-slate-200">Enable Background Polishing</span>
                   <p className="text-xs text-slate-400 mt-1">
-                    Polish translations using LLM for better grammar and naturalness (slower, costs API calls)
+                    Automatically polish translations during live transcription using LLM
                   </p>
                 </div>
               </label>
+
+              {formData.enableLivePolishing && (
+                <>
+                  <div>
+                    <label className="block">
+                      <span className="text-sm text-slate-400 mb-1 block">Polishing Interval (seconds)</span>
+                      <input
+                        type="range"
+                        min="10"
+                        max="120"
+                        step="10"
+                        value={formData.polishingInterval}
+                        onChange={(e) => setFormData({ ...formData, polishingInterval: parseInt(e.target.value) })}
+                        className="w-full"
+                      />
+                      <div className="flex justify-between text-xs text-slate-500 mt-1">
+                        <span>10s</span>
+                        <span className="text-cyan-400">{formData.polishingInterval}s</span>
+                        <span>120s</span>
+                      </div>
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="block">
+                      <span className="text-sm text-slate-400 mb-1 block">Minimum Segments</span>
+                      <input
+                        type="range"
+                        min="3"
+                        max="10"
+                        step="1"
+                        value={formData.polishingBatchSize}
+                        onChange={(e) => setFormData({ ...formData, polishingBatchSize: parseInt(e.target.value) })}
+                        className="w-full"
+                      />
+                      <div className="flex justify-between text-xs text-slate-500 mt-1">
+                        <span>3</span>
+                        <span className="text-cyan-400">{formData.polishingBatchSize}</span>
+                        <span>10</span>
+                      </div>
+                    </label>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

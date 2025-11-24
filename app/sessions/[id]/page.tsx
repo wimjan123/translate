@@ -7,8 +7,8 @@ import { ArrowLeft, Calendar, Clock, Sparkles, AlertCircle } from 'lucide-react'
 interface TranscriptSegment {
   id: string;
   originalText: string;
-  translatedText: string;
-  polishedText: string | null;
+  rawTranslation: string | null;
+  polishedTranslation: string | null;
   startTime: string;
   endTime: string;
 }
@@ -138,7 +138,7 @@ export default function SessionDetailPage() {
     }
   };
 
-  const hasPolishedTranslations = session?.segments.some((s) => s.polishedText);
+  const hasPolishedTranslations = session?.segments.some((s) => s.polishedTranslation);
   const canPolish = session && session.segments.length > 0 && !hasPolishedTranslations;
 
   if (loading) {
@@ -289,15 +289,17 @@ export default function SessionDetailPage() {
                     </div>
                     <div>
                       <div className="text-xs text-slate-500 mb-1">Instant Translation:</div>
-                      <p className="text-slate-200 leading-relaxed">{segment.translatedText}</p>
+                      <p className="text-slate-200 leading-relaxed">
+                        {segment.rawTranslation || 'No translation available'}
+                      </p>
                     </div>
-                    {segment.polishedText && (
+                    {segment.polishedTranslation && (
                       <div className="mt-3 p-3 bg-gradient-to-r from-purple-500/10 to-indigo-500/10 rounded-lg border border-purple-500/30">
                         <div className="flex items-center gap-2 mb-1">
                           <Sparkles className="w-4 h-4 text-purple-400" />
                           <div className="text-xs font-medium text-purple-300">LLM Polished:</div>
                         </div>
-                        <p className="text-slate-200 leading-relaxed">{segment.polishedText}</p>
+                        <p className="text-slate-200 leading-relaxed">{segment.polishedTranslation}</p>
                       </div>
                     )}
                   </div>

@@ -6,6 +6,8 @@ import { Server as SocketIOServer } from 'socket.io';
 import { createClient, LiveTranscriptionEvents } from '@deepgram/sdk';
 import { translateText } from './lib/openrouter-client';
 import { translateWithLibreTranslate } from './lib/libretranslate-client';
+import { livePolishingManager } from './lib/live-polishing-manager';
+import { getDeepgramLanguageCode, getLibreTranslateLanguageCode } from './lib/language-config';
 import { prisma } from './lib/prisma';
 import type { SocketAuth, TranscriptSegment } from './types/settings';
 
@@ -84,7 +86,7 @@ app.prepare().then(async () => {
 
       // Update all segments in parallel with proper error handling
       const updatePromises = session.segments.map(async (segment, idx) => {
-        const polishedText = polishedSegmentsMap.get(idx) || segment.translatedText; // Fallback to translated text if parsing failed
+        const polishedTranslation = polishedSegmentsMap.get(idx) || segment.rawTranslation; // Fallback to raw translation if parsing failed
 
         if (!polishedSegmentsMap.has(idx)) {
           fastify.log.warn(`Failed to parse polished text for segment ${idx + 1}, using original translation`);
@@ -92,7 +94,7 @@ app.prepare().then(async () => {
 
         return prisma.transcriptSegment.update({
           where: { id: segment.id },
-          data: { polishedText },
+          data: { polishedTranslation },
         });
       });
 
@@ -172,7 +174,7 @@ app.prepare().then(async () => {
           const endOffsetMs = Math.floor((currentSentence[currentSentence.length - 1].end || 0) * 1000);
 
           // Translate
-          const translatedText = await translateText({
+          const rawTranslation = await translateText({
             text: originalText,
             sourceLang: inputLang,
             targetLang: outputLang,
@@ -184,7 +186,7 @@ app.prepare().then(async () => {
             startOffsetMs,
             endOffsetMs,
             originalText,
-            translatedText,
+            rawTranslation,
             isFinal: true,
           });
 
@@ -198,7 +200,7 @@ app.prepare().then(async () => {
         const startOffsetMs = Math.floor((currentSentence[0].start || 0) * 1000);
         const endOffsetMs = Math.floor((currentSentence[currentSentence.length - 1].end || 0) * 1000);
 
-        const translatedText = await translateText({
+        const rawTranslation = await translateText({
           text: originalText,
           sourceLang: inputLang,
           targetLang: outputLang,
@@ -210,7 +212,7 @@ app.prepare().then(async () => {
           startOffsetMs,
           endOffsetMs,
           originalText,
-          translatedText,
+          rawTranslation,
           isFinal: true,
         });
       }
@@ -247,15 +249,20 @@ app.prepare().then(async () => {
       const auth = socket.handshake.auth as SocketAuth;
       const {
         deepgramKey,
-        deepgramModel = 'nova-2',
+        deepgramModel = 'nova-3',
         openRouterKey,
         openRouterModel = 'google/gemini-flash-1.5',
         inputLang = 'fr',
         outputLang = 'en',
-        enablePolishing = false,
+        enableLivePolishing = false,
+        polishingInterval = 30,
+        polishingBatchSize = 5,
       } = auth;
 
-      console.log('Client config:', { deepgramModel, openRouterModel, inputLang, outputLang, enablePolishing });
+      console.log('Client config:', {
+        deepgramModel, openRouterModel, inputLang, outputLang,
+        enableLivePolishing, polishingInterval, polishingBatchSize
+      });
 
       if (!deepgramKey || !openRouterKey) {
         socket.emit('error', { message: 'Missing API keys' });
@@ -269,9 +276,10 @@ app.prepare().then(async () => {
 
       // Initialize Deepgram with dynamic config
       const deepgram = createClient(deepgramKey);
+      const deepgramLangCode = getDeepgramLanguageCode(inputLang);
       const dgConnection = deepgram.listen.live({
         model: deepgramModel,
-        language: inputLang,
+        language: deepgramLangCode,
         smart_format: true,
         interim_results: true,
       });
@@ -304,10 +312,12 @@ app.prepare().then(async () => {
             console.log('Translating final transcript:', transcript);
 
             // Instant translation using LibreTranslate
+            const sourceLibreLang = getLibreTranslateLanguageCode(inputLang);
+            const targetLibreLang = getLibreTranslateLanguageCode(outputLang);
             const instantTranslation = await translateWithLibreTranslate({
               text: transcript,
-              sourceLang: inputLang,
-              targetLang: outputLang,
+              sourceLang: sourceLibreLang,
+              targetLang: targetLibreLang,
             });
 
             console.log('Instant translation:', instantTranslation);
@@ -317,7 +327,7 @@ app.prepare().then(async () => {
               startOffsetMs: Date.now() - sessionStartTime,
               endOffsetMs: Date.now() - sessionStartTime,
               originalText: transcript,
-              translatedText: instantTranslation,
+              rawTranslation: instantTranslation,
               isFinal: true,
             };
 
@@ -330,7 +340,7 @@ app.prepare().then(async () => {
                     startTime: now,
                     endTime: now,
                     originalText: transcript,
-                    translatedText: instantTranslation,
+                    rawTranslation: instantTranslation,
                     isFinal: true,
                   },
                 });
@@ -367,12 +377,24 @@ app.prepare().then(async () => {
         if (!sessionCreated) {
           try {
             dbSession = await prisma.session.create({
-              data: {},
+              data: {
+                inputLanguage: inputLang,
+                outputLanguage: outputLang,
+              },
             });
             sessionCreated = true;
             sessionStartTime = Date.now(); // Reset start time when recording actually begins
             console.log('Created database session on first audio chunk:', dbSession.id);
             socket.emit('session-created', { sessionId: dbSession.id });
+
+            // Start background polishing if enabled
+            if (enableLivePolishing) {
+              livePolishingManager.startBackgroundPolishing(dbSession.id, {
+                enableLivePolishing,
+                polishingInterval,
+                polishingBatchSize,
+              });
+            }
           } catch (error) {
             console.error('Failed to create session:', error);
             socket.emit('error', { message: 'Failed to create session' });
@@ -388,9 +410,55 @@ app.prepare().then(async () => {
         }
       });
 
+      // Handle manual polish request
+      socket.on('polish-current-session', async () => {
+        if (!sessionCreated || !dbSession) {
+          socket.emit('polish-error', { message: 'No active session' });
+          return;
+        }
+
+        console.log('Manual polish requested for session:', dbSession.id);
+        socket.emit('polish-started');
+
+        try {
+          const result = await livePolishingManager.attemptPolishing(dbSession.id, true);
+
+          if (result.status === 'success') {
+            // Fetch updated segments
+            const updatedSession = await prisma.session.findUnique({
+              where: { id: dbSession.id },
+              include: {
+                segments: {
+                  orderBy: { startTime: 'asc' },
+                },
+              },
+            });
+
+            socket.emit('polish-completed', {
+              segments: updatedSession?.segments || [],
+              polishedCount: result.polishedCount,
+            });
+          } else if (result.status === 'busy') {
+            socket.emit('polish-busy', { message: result.message });
+          } else {
+            socket.emit('polish-error', { message: result.message });
+          }
+        } catch (error) {
+          console.error('Manual polish error:', error);
+          socket.emit('polish-error', {
+            message: error instanceof Error ? error.message : 'Polish failed'
+          });
+        }
+      });
+
       socket.on('disconnect', async () => {
         console.log('Client disconnected', socket.id);
         dgConnection.finish();
+
+        // Stop background polishing
+        if (sessionCreated && dbSession) {
+          livePolishingManager.stopBackgroundPolishing(dbSession.id);
+        }
 
         // Clean up session
         if (sessionCreated && dbSession) {

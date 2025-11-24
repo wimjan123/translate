@@ -29,7 +29,9 @@ export function useAudioStream(settings: AppSettings) {
         openRouterModel: settings.openRouterModel,
         inputLang: settings.inputLang,
         outputLang: settings.outputLang,
-        enablePolishing: settings.enablePolishing,
+        enableLivePolishing: settings.enableLivePolishing,
+        polishingInterval: settings.polishingInterval,
+        polishingBatchSize: settings.polishingBatchSize,
       },
     });
 

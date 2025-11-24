@@ -9,23 +9,35 @@ generator client {
 }
 
 model Session {
-  id           String              @id @default(uuid())
-  createdAt    DateTime            @default(now())
-  duration     Int?                // Duration in seconds
-  segmentCount Int                 @default(0)
-  segments     TranscriptSegment[]
+  id                String              @id @default(uuid())
+  createdAt         DateTime            @default(now())
+  duration          Int?                // Duration in seconds
+  segmentCount      Int                 @default(0)
+  segments          TranscriptSegment[]
+
+  // Polishing state management
+  isPolishing       Boolean             @default(false)  // Mutex flag for concurrent operations
+  lastPolishedAt    DateTime?           // When last polish operation completed
+  polishingStatus   String              @default("idle") // idle | processing | error
+  lastPolishedIndex Int                 @default(0)      // Last segment ID that was polished
+
+  // Language settings
+  inputLanguage     String              @default("fr")   // Source language code
+  outputLanguage    String              @default("en")   // Target language code
 
   @@index([createdAt])
 }
 
 model TranscriptSegment {
-  id             String    @id @default(uuid())
-  sessionId      String
-  session        Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  startTime      DateTime  @default(now()) // Actual timestamp when segment started
-  endTime        DateTime  @default(now()) // Actual timestamp when segment ended
-  originalText   String    // Source language text
-  translatedText String    // Instant translation
-  polishedText   String?   // LLM-polished translation (optional, applied later)
-  isFinal        Boolean   @default(true)
+  id                  String    @id @default(uuid())
+  sessionId           String
+  session             Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  startTime           DateTime  @default(now()) // Actual timestamp when segment started
+  endTime             DateTime  @default(now()) // Actual timestamp when segment ended
+  originalText        String    // Source language text (from Deepgram)
+  rawTranslation      String?   // LibreTranslate instant translation
+  polishedTranslation String?   // OpenRouter LLM polished translation
+  isFinal             Boolean   @default(true)
+
+  @@index([sessionId, startTime])
 }

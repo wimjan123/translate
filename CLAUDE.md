@@ -33,10 +33,35 @@ Real-time audio translation web application supporting French to English transla
 
 ### Translation Pipeline
 1. **Audio Capture**: Browser MediaRecorder → WebSocket chunks
-2. **Transcription**: Deepgram Nova-2 (smart_format=true, language=fr)
-3. **Buffering**: Collect `is_final=true` chunks until punctuation
-4. **Translation**: OpenRouter API (buffered text → English)
-5. **Delivery**: Emit translated segments to client
+2. **Transcription**: Deepgram Nova-2/3 (smart_format=true, multi-language support)
+3. **Instant Translation**: LibreTranslate for immediate feedback (rawTranslation)
+4. **Buffering**: Collect `is_final=true` chunks for batch processing
+5. **Polish Translation**: OpenRouter LLM for high-quality translation (polishedTranslation)
+6. **Delivery**: Emit both instant and polished translations to client
+
+### Critical Translation Rules
+**IMPORTANT**: These rules MUST be followed to ensure translation quality and data integrity:
+
+1. **ALWAYS send original language text to LLM**
+   - Never send LibreTranslate output to OpenRouter
+   - The LLM must receive the source language (Dutch, French, etc.) directly
+   - This ensures highest translation accuracy
+
+2. **Maintain data field separation**
+   - `originalText`: Source language transcript from Deepgram
+   - `rawTranslation`: LibreTranslate instant translation (fast, basic quality)
+   - `polishedTranslation`: OpenRouter LLM translation (slower, high quality)
+   - UI must fallback: polishedTranslation → rawTranslation → "Translating..."
+
+3. **Prevent concurrent polishing operations**
+   - Use session-level `isPolishing` flag as mutex
+   - Check and acquire lock before any polish operation
+   - Release lock in finally blocks to ensure cleanup
+   - Both manual and automatic polish must respect the lock
+
+4. **Supported Languages**
+   - **Input**: French (fr), Dutch (nl), Spanish (es), German (de), Italian (it), Portuguese (pt), Russian (ru), Chinese (zh), Japanese (ja), Arabic (ar)
+   - **Output**: English (en), French (fr), Dutch (nl), Spanish (es), German (de), Italian (it), Portuguese (pt), Russian (ru), Chinese (zh), Japanese (ja)
 
 ### Deepgram SDK v3 Integration
 **Critical**: Use latest v3 syntax (NOT deprecated v2)

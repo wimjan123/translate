@@ -83,7 +83,9 @@ export function TranscriptView() {
                 <div className="text-xs text-cyan-400 mb-1 font-mono">
                   {formatTime(segment.startOffsetMs)}
                 </div>
-                <p className="text-slate-200 leading-relaxed">{segment.translatedText}</p>
+                <p className="text-slate-200 leading-relaxed">
+                  {segment.polishedTranslation || segment.rawTranslation || 'Translating...'}
+                </p>
               </div>
             ))
           )}

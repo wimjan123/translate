@@ -37,11 +37,20 @@ services:
   libretranslate:
     image: libretranslate/libretranslate:latest
     environment:
-      - LT_LOAD_ONLY=en,fr,es,de,it,pt
+      - LT_LOAD_ONLY=en,fr,nl,es,de,it,pt,ru,zh,ja,ar
       - LT_DISABLE_WEB_UI=false
+      - LT_CHAR_LIMIT=5000
+      - LT_FRONTEND_TIMEOUT=120
+      - LT_BATCH_LIMIT=10
     networks:
       - internal_net
     restart: unless-stopped
+    volumes:
+      - libretranslate_models:/home/libretranslate/.local
+    deploy:
+      resources:
+        limits:
+          memory: 4G
 
 networks:
   traefik_proxy:
@@ -51,3 +60,4 @@ networks:
 
 volumes:
   db_data:
+  libretranslate_models:

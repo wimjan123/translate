@@ -155,7 +155,9 @@ function HomeContent() {
                     <div className="h-96 overflow-y-auto p-4 space-y-3 bg-black/40">
                       {uploadSegments.map((segment, idx) => (
                         <div key={idx} className="pb-3 border-b border-white/5 last:border-0">
-                          <p className="text-slate-200 leading-relaxed">{segment.translatedText}</p>
+                          <p className="text-slate-200 leading-relaxed">
+                            {segment.rawTranslation || 'Translating...'}
+                          </p>
                         </div>
                       ))}
                     </div>
