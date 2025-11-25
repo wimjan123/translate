@@ -6,6 +6,8 @@ import { SettingsModal } from '@/components/SettingsModal';
 import { TranscriptView } from '@/components/TranscriptView';
 import { LiveControls } from '@/components/LiveControls';
 import { FileUpload } from '@/components/FileUpload';
+import { TwoWayLanguageSelector } from '@/components/TwoWayLanguageSelector';
+import { TwoWayTranscriptView } from '@/components/TwoWayTranscriptView';
 import { LiveSessionProvider, useLiveSession } from '@/context/LiveSessionContext';
 import { useSettings } from '@/hooks/useSettings';
 import { useFileUpload } from '@/hooks/useFileUpload';
@@ -14,10 +16,11 @@ import { AlertCircle } from 'lucide-react';
 function HomeContent() {
   const { settings, updateSettings, isValid, isLoaded } = useSettings();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [mode, setMode] = useState<'live' | 'upload'>('live');
+  const [mode, setMode] = useState<'live' | 'two-way' | 'upload'>('live');
 
-  // Live mode from context
-  const { error: liveError } = useLiveSession();
+  // 2-way mode language state
+  const [twoWayLangA, setTwoWayLangA] = useState('nl');
+  const [twoWayLangB, setTwoWayLangB] = useState('fr');
 
   // Upload mode hooks
   const {
@@ -85,6 +88,16 @@ function HomeContent() {
             Live Stream
           </button>
           <button
+            onClick={() => setMode('two-way')}
+            className={`px-6 py-3 font-medium transition-all duration-300 ${
+              mode === 'two-way'
+                ? 'border-b-2 border-purple-400 text-purple-400'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            2-Way Live
+          </button>
+          <button
             onClick={() => setMode('upload')}
             className={`px-6 py-3 font-medium transition-all duration-300 ${
               mode === 'upload'
@@ -96,22 +109,45 @@ function HomeContent() {
           </button>
         </div>
 
-        {/* Error Display */}
-        {(liveError || uploadError) && (
+        {/* Error Display (for upload mode) */}
+        {mode === 'upload' && uploadError && (
           <div className="mb-6 glass border border-red-500/50 rounded-xl p-4">
             <div className="flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-              <p className="text-red-300">{liveError || uploadError}</p>
+              <p className="text-red-300">{uploadError}</p>
             </div>
           </div>
         )}
 
         {/* Live Mode */}
         {mode === 'live' && (
-          <div className="space-y-6">
-            <LiveControls />
-            <TranscriptView />
-          </div>
+          <LiveSessionProvider settings={settings} sessionMode="one-way">
+            <div className="space-y-6">
+              <LiveControls />
+              <TranscriptView />
+            </div>
+          </LiveSessionProvider>
+        )}
+
+        {/* 2-Way Live Mode */}
+        {mode === 'two-way' && (
+          <LiveSessionProvider
+            settings={settings}
+            sessionMode="two-way"
+            languageA={twoWayLangA}
+            languageB={twoWayLangB}
+          >
+            <div className="space-y-6">
+              <TwoWayLanguageSelector
+                languageA={twoWayLangA}
+                languageB={twoWayLangB}
+                onChangeLanguageA={setTwoWayLangA}
+                onChangeLanguageB={setTwoWayLangB}
+              />
+              <LiveControls />
+              <TwoWayTranscriptView languageA={twoWayLangA} languageB={twoWayLangB} />
+            </div>
+          </LiveSessionProvider>
         )}
 
         {/* Upload Mode */}
@@ -181,20 +217,5 @@ function HomeContent() {
 }
 
 export default function Home() {
-  const { settings, isLoaded } = useSettings();
-
-  // Don't render provider until settings are loaded
-  if (!isLoaded) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-slate-400">Loading...</div>
-      </div>
-    );
-  }
-
-  return (
-    <LiveSessionProvider settings={settings}>
-      <HomeContent />
-    </LiveSessionProvider>
-  );
+  return <HomeContent />;
 }

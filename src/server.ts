@@ -8,6 +8,7 @@ import { translateText } from './lib/openrouter-client';
 import { translateWithLibreTranslate } from './lib/libretranslate-client';
 import { livePolishingManager } from './lib/live-polishing-manager';
 import { getDeepgramLanguageCode, getLibreTranslateLanguageCode } from './lib/language-config';
+import { detectDominantLanguage } from './lib/language-detection';
 import { prisma } from './lib/prisma';
 import type { SocketAuth, TranscriptSegment } from './types/settings';
 
@@ -257,11 +258,18 @@ app.prepare().then(async () => {
         enableLivePolishing = false,
         polishingInterval = 30,
         polishingBatchSize = 5,
+        // 2-way mode fields
+        sessionMode = 'one-way',
+        languageA,
+        languageB,
       } = auth;
+
+      const isTwoWayMode = sessionMode === 'two-way' && languageA && languageB;
 
       console.log('Client config:', {
         deepgramModel, openRouterModel, inputLang, outputLang,
-        enableLivePolishing, polishingInterval, polishingBatchSize
+        enableLivePolishing, polishingInterval, polishingBatchSize,
+        sessionMode, languageA, languageB
       });
 
       if (!deepgramKey || !openRouterKey) {
@@ -276,44 +284,102 @@ app.prepare().then(async () => {
 
       // Initialize Deepgram with dynamic config
       const deepgram = createClient(deepgramKey);
-      const deepgramLangCode = getDeepgramLanguageCode(inputLang);
-      const dgConnection = deepgram.listen.live({
-        model: deepgramModel,
-        language: deepgramLangCode,
-        smart_format: true,
-        interim_results: true,
-      });
+      // For 2-way mode, use 'multi' for multilingual detection; otherwise use configured language
+      const deepgramLangCode = isTwoWayMode ? 'multi' : getDeepgramLanguageCode(inputLang);
+      let dgConnection: any = null;
+      let dgConnectionReady = false;
+      let pendingAudioChunk: any = null;
+      let isRecreatingConnection = false;
 
       let sessionStartTime = Date.now();
 
-      dgConnection.on(LiveTranscriptionEvents.Open, () => {
-        console.log('Deepgram connection opened');
-        socket.emit('deepgram-ready');
-      });
+      // Function to create Deepgram connection
+      const createDeepgramConnection = () => {
+        // Mark that we're intentionally recreating
+        isRecreatingConnection = true;
 
-      dgConnection.on(LiveTranscriptionEvents.Transcript, async (data) => {
+        // Close existing connection if any
+        if (dgConnection) {
+          try {
+            dgConnection.finish();
+          } catch (e) {
+            console.log('Error closing previous Deepgram connection:', e);
+          }
+          dgConnection = null;
+          dgConnectionReady = false;
+        }
+
+        console.log('Creating new Deepgram connection...');
+        dgConnection = deepgram.listen.live({
+          model: deepgramModel,
+          language: deepgramLangCode,
+          smart_format: true,
+          interim_results: true,
+        });
+
+        dgConnection.on(LiveTranscriptionEvents.Open, () => {
+          console.log('Deepgram connection opened');
+          dgConnectionReady = true;
+          isRecreatingConnection = false;
+          socket.emit('deepgram-ready');
+
+          // Send any pending audio chunk
+          if (pendingAudioChunk) {
+            console.log('Sending pending audio chunk after reconnection');
+            dgConnection.send(pendingAudioChunk);
+            pendingAudioChunk = null;
+          }
+        });
+
+        dgConnection.on(LiveTranscriptionEvents.Close, () => {
+          console.log('Deepgram connection closed');
+          dgConnectionReady = false;
+          // Only notify client if this was an unexpected close, not during recreation
+          if (!isRecreatingConnection) {
+            socket.emit('deepgram-closed');
+          }
+        });
+
+        dgConnection.on(LiveTranscriptionEvents.Transcript, async (data: any) => {
         const transcript = data.channel?.alternatives[0]?.transcript;
+        const words = data.channel?.alternatives[0]?.words || [];
         const isFinal = data.is_final;
 
         if (!transcript) return;
 
-        console.log('Deepgram transcript:', { transcript, isFinal });
+        console.log('Deepgram transcript:', { transcript, isFinal, wordCount: words.length });
+
+        // Determine source and target languages
+        let sourceLang = inputLang;
+        let targetLang = outputLang;
+        let detectedLanguage: string | undefined;
+        let translationDirection: 'A_to_B' | 'B_to_A' | undefined;
+
+        // For 2-way mode, detect language from words
+        if (isTwoWayMode && words.length > 0) {
+          const detection = detectDominantLanguage(words, languageA!, languageB!);
+          sourceLang = detection.language;
+          targetLang = detection.other;
+          detectedLanguage = detection.language;
+          translationDirection = detection.language === languageA ? 'A_to_B' : 'B_to_A';
+          console.log('2-way language detection:', { detected: detectedLanguage, confidence: detection.confidence, direction: translationDirection });
+        }
 
         // Emit original transcript immediately
         socket.emit('transcript', {
           text: transcript,
           isFinal,
-          language: inputLang,
+          language: detectedLanguage || inputLang,
         });
 
         // Only translate final transcripts
         if (isFinal && transcript.trim().length > 0) {
           try {
-            console.log('Translating final transcript:', transcript);
+            console.log('Translating final transcript:', transcript, 'from', sourceLang, 'to', targetLang);
 
             // Instant translation using LibreTranslate
-            const sourceLibreLang = getLibreTranslateLanguageCode(inputLang);
-            const targetLibreLang = getLibreTranslateLanguageCode(outputLang);
+            const sourceLibreLang = getLibreTranslateLanguageCode(sourceLang);
+            const targetLibreLang = getLibreTranslateLanguageCode(targetLang);
             const instantTranslation = await translateWithLibreTranslate({
               text: transcript,
               sourceLang: sourceLibreLang,
@@ -329,6 +395,9 @@ app.prepare().then(async () => {
               originalText: transcript,
               rawTranslation: instantTranslation,
               isFinal: true,
+              // 2-way mode fields
+              detectedLanguage,
+              translationDirection,
             };
 
             // Save to database (only if session was created)
@@ -342,6 +411,8 @@ app.prepare().then(async () => {
                     originalText: transcript,
                     rawTranslation: instantTranslation,
                     isFinal: true,
+                    detectedLanguage,
+                    translationDirection,
                   },
                 });
 
@@ -359,18 +430,24 @@ app.prepare().then(async () => {
               }
             }
 
-            socket.emit('instant-translation', segment);
+            // Emit the appropriate event based on mode
+            socket.emit(isTwoWayMode ? 'two-way-translation' : 'instant-translation', segment);
           } catch (error) {
             console.error('Instant translation error:', error);
             socket.emit('error', { message: 'Translation failed' });
           }
         }
-      });
+        });
 
-      dgConnection.on(LiveTranscriptionEvents.Error, (error) => {
-        console.error('Deepgram error:', error);
-        socket.emit('error', { message: 'Transcription error' });
-      });
+        dgConnection.on(LiveTranscriptionEvents.Error, (error: any) => {
+          console.error('Deepgram error:', error);
+          dgConnectionReady = false;
+          socket.emit('error', { message: 'Transcription error' });
+        });
+      };
+
+      // Create initial Deepgram connection
+      createDeepgramConnection();
 
       socket.on('audio-chunk', async (data) => {
         // Create session lazily on first audio chunk
@@ -378,13 +455,16 @@ app.prepare().then(async () => {
           try {
             dbSession = await prisma.session.create({
               data: {
-                inputLanguage: inputLang,
-                outputLanguage: outputLang,
+                inputLanguage: isTwoWayMode ? languageA! : inputLang,
+                outputLanguage: isTwoWayMode ? languageB! : outputLang,
+                mode: sessionMode,
+                languageA: isTwoWayMode ? languageA : null,
+                languageB: isTwoWayMode ? languageB : null,
               },
             });
             sessionCreated = true;
             sessionStartTime = Date.now(); // Reset start time when recording actually begins
-            console.log('Created database session on first audio chunk:', dbSession.id);
+            console.log('Created database session on first audio chunk:', dbSession.id, 'mode:', sessionMode);
             socket.emit('session-created', { sessionId: dbSession.id });
 
             // Start background polishing if enabled
@@ -393,7 +473,7 @@ app.prepare().then(async () => {
                 enableLivePolishing,
                 polishingInterval,
                 polishingBatchSize,
-              });
+              }, openRouterKey, openRouterModel);
             }
           } catch (error) {
             console.error('Failed to create session:', error);
@@ -402,11 +482,13 @@ app.prepare().then(async () => {
           }
         }
 
-        if (dgConnection.getReadyState() === 1) {
-          console.log('Received audio chunk, sending to Deepgram');
-          dgConnection.send(data);
+        // Check Deepgram connection state and recreate if needed
+        if (!dgConnectionReady) {
+          console.log('Deepgram connection not ready, recreating...');
+          pendingAudioChunk = data; // Buffer this chunk
+          createDeepgramConnection();
         } else {
-          console.warn('Deepgram not ready, skipping chunk');
+          dgConnection.send(data);
         }
       });
 
@@ -421,7 +503,7 @@ app.prepare().then(async () => {
         socket.emit('polish-started');
 
         try {
-          const result = await livePolishingManager.attemptPolishing(dbSession.id, true);
+          const result = await livePolishingManager.attemptPolishing(dbSession.id, true, openRouterKey, openRouterModel);
 
           if (result.status === 'success') {
             // Fetch updated segments
@@ -453,7 +535,13 @@ app.prepare().then(async () => {
 
       socket.on('disconnect', async () => {
         console.log('Client disconnected', socket.id);
-        dgConnection.finish();
+        if (dgConnection) {
+          try {
+            dgConnection.finish();
+          } catch (e) {
+            console.log('Error closing Deepgram connection on disconnect:', e);
+          }
+        }
 
         // Stop background polishing
         if (sessionCreated && dbSession) {

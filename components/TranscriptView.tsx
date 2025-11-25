@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { Sparkles } from 'lucide-react';
 import { useLiveSession } from '@/context/LiveSessionContext';
 
 export function TranscriptView() {
-  const { transcripts, recordingStartTime } = useLiveSession();
+  const { transcripts, recordingStartTime, isPolishing } = useLiveSession();
   const originalRef = useRef<HTMLDivElement>(null);
   const translatedRef = useRef<HTMLDivElement>(null);
 
@@ -62,10 +63,16 @@ export function TranscriptView() {
 
       {/* Translated Language (English) */}
       <div className="rounded-xl overflow-hidden border border-white/5">
-        <div className="glass px-4 py-3 border-b border-white/5">
+        <div className="glass px-4 py-3 border-b border-white/5 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-cyan-500">
             English (Translation)
           </h2>
+          {isPolishing && (
+            <div className="flex items-center gap-2 text-purple-400 text-sm">
+              <Sparkles className="w-4 h-4 animate-pulse" />
+              <span>Polishing...</span>
+            </div>
+          )}
         </div>
         <div
           ref={translatedRef}

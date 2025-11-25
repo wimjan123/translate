@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { AppSettings, TranscriptSegment } from '@/src/types/settings';
+import type { AppSettings, TranscriptSegment, SessionMode } from '@/src/types/settings';
 
 interface LiveSessionContextType {
   isConnected: boolean;
@@ -12,9 +12,14 @@ interface LiveSessionContextType {
   sessionId: string | null;
   timer: number;
   recordingStartTime: number | null;
+  isPolishing: boolean;
+  polishError: string | null;
   startRecording: () => Promise<void>;
   stopRecording: () => void;
+  pauseRecording: () => void;
+  resumeRecording: () => void;
   clearTranscripts: () => void;
+  handleManualPolish: () => void;
 }
 
 const LiveSessionContext = createContext<LiveSessionContextType | undefined>(undefined);
@@ -30,15 +35,28 @@ export function useLiveSession() {
 interface LiveSessionProviderProps {
   children: ReactNode;
   settings: AppSettings;
+  // 2-way mode props
+  sessionMode?: SessionMode;
+  languageA?: string;
+  languageB?: string;
 }
 
-export function LiveSessionProvider({ children, settings }: LiveSessionProviderProps) {
+export function LiveSessionProvider({
+  children,
+  settings,
+  sessionMode = 'one-way',
+  languageA,
+  languageB,
+}: LiveSessionProviderProps) {
   const [isConnected, setIsConnected] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [transcripts, setTranscripts] = useState<TranscriptSegment[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [timer, setTimer] = useState(0);
+  const [isPolishing, setIsPolishing] = useState(false);
+  const [polishError, setPolishError] = useState<string | null>(null);
+  const [isPaused, setIsPaused] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -46,6 +64,7 @@ export function LiveSessionProvider({ children, settings }: LiveSessionProviderP
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const deepgramReadyRef = useRef(false);
   const recordingStartTimeRef = useRef<number | null>(null);
+  const sessionActiveRef = useRef(false);
 
   // Initialize Socket.io connection
   useEffect(() => {
@@ -64,6 +83,10 @@ export function LiveSessionProvider({ children, settings }: LiveSessionProviderP
         enableLivePolishing: settings.enableLivePolishing,
         polishingInterval: settings.polishingInterval,
         polishingBatchSize: settings.polishingBatchSize,
+        // 2-way mode fields
+        sessionMode,
+        languageA,
+        languageB,
       },
     });
 
@@ -103,9 +126,63 @@ export function LiveSessionProvider({ children, settings }: LiveSessionProviderP
       setTranscripts((prev) => [...prev, segment]);
     });
 
+    // 2-way mode translation handler
+    socket.on('two-way-translation', (segment: TranscriptSegment) => {
+      console.log('Two-way translation received:', segment);
+      setTranscripts((prev) => [...prev, segment]);
+    });
+
     socket.on('deepgram-ready', () => {
       console.log('Deepgram connection ready');
       deepgramReadyRef.current = true;
+    });
+
+    socket.on('deepgram-closed', () => {
+      console.log('Deepgram connection closed by server');
+      deepgramReadyRef.current = false;
+    });
+
+    // Polish event handlers
+    socket.on('polish-started', () => {
+      console.log('Polish started');
+      setIsPolishing(true);
+      setPolishError(null);
+    });
+
+    socket.on('polish-completed', (data: { segments: any[], polishedCount: number }) => {
+      console.log('Polish completed:', data);
+      setIsPolishing(false);
+
+      // Update transcripts with polished translations
+      if (data.segments && data.segments.length > 0) {
+        setTranscripts((prev) => {
+          const updatedTranscripts = [...prev];
+          data.segments.forEach((polishedSegment) => {
+            const index = updatedTranscripts.findIndex(t =>
+              t.originalText === polishedSegment.originalText
+            );
+            if (index !== -1) {
+              updatedTranscripts[index] = {
+                ...updatedTranscripts[index],
+                polishedTranslation: polishedSegment.polishedTranslation
+              };
+            }
+          });
+          return updatedTranscripts;
+        });
+      }
+    });
+
+    socket.on('polish-error', (data: { message: string }) => {
+      console.error('Polish error:', data);
+      setIsPolishing(false);
+      setPolishError(data.message);
+    });
+
+    socket.on('polish-busy', (data: { message: string }) => {
+      console.log('Polish busy:', data);
+      setIsPolishing(false);
+      setPolishError('Polish already in progress');
     });
 
     socketRef.current = socket;
@@ -116,7 +193,7 @@ export function LiveSessionProvider({ children, settings }: LiveSessionProviderP
         clearInterval(timerIntervalRef.current);
       }
     };
-  }, [settings]);
+  }, [settings, sessionMode, languageA, languageB]);
 
   // Timer management
   useEffect(() => {
@@ -144,6 +221,23 @@ export function LiveSessionProvider({ children, settings }: LiveSessionProviderP
     if (!socketRef.current || !isConnected) {
       setError('Socket not connected');
       return;
+    }
+
+    // If we're resuming from a pause, just restart the MediaRecorder
+    if (isPaused && mediaRecorderRef.current && streamRef.current) {
+      console.log('Resuming recording from pause');
+      mediaRecorderRef.current.start(500);
+      setIsPaused(false);
+      setIsRecording(true);
+      return;
+    }
+
+    // If there's an active session but stopped, clear it first
+    if (sessionActiveRef.current && !isRecording) {
+      console.log('Clearing previous session state');
+      sessionActiveRef.current = false;
+      // Don't reset deepgramReadyRef - it's managed by socket connection
+      setSessionId(null);
     }
 
     try {
@@ -180,10 +274,10 @@ export function LiveSessionProvider({ children, settings }: LiveSessionProviderP
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0 && socketRef.current && deepgramReadyRef.current) {
-          console.log('Sending audio chunk:', event.data.size, 'bytes');
           socketRef.current.emit('audio-chunk', event.data);
-        } else if (event.data.size > 0 && !deepgramReadyRef.current) {
-          console.log('Deepgram not ready yet, buffering chunk...');
+        } else if (event.data.size > 0 && socketRef.current && !deepgramReadyRef.current) {
+          // Server will recreate connection when it receives the chunk
+          socketRef.current.emit('audio-chunk', event.data);
         }
       };
 
@@ -195,7 +289,9 @@ export function LiveSessionProvider({ children, settings }: LiveSessionProviderP
       mediaRecorder.start(500); // Send chunks every 500ms
       mediaRecorderRef.current = mediaRecorder;
       recordingStartTimeRef.current = Date.now();
+      sessionActiveRef.current = true;
       setIsRecording(true);
+      setIsPaused(false);
       setError(null);
       console.log('Recording started');
     } catch (err) {
@@ -204,25 +300,70 @@ export function LiveSessionProvider({ children, settings }: LiveSessionProviderP
     }
   };
 
-  // Stop recording
+  // Stop recording (complete teardown)
   const stopRecording = () => {
-    if (mediaRecorderRef.current) {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
-      mediaRecorderRef.current = null;
     }
+    mediaRecorderRef.current = null;
 
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
 
+    // Clear session state but keep Deepgram ready state if socket is still connected
+    sessionActiveRef.current = false;
+    // Don't reset deepgramReadyRef here - it's managed by socket connection
     recordingStartTimeRef.current = null;
     setIsRecording(false);
+    setIsPaused(false);
+  };
+
+  // Pause recording (keep session active)
+  const pauseRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.pause();
+      setIsPaused(true);
+      setIsRecording(false);
+      console.log('Recording paused');
+    }
+  };
+
+  // Resume recording
+  const resumeRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
+      mediaRecorderRef.current.resume();
+      setIsPaused(false);
+      setIsRecording(true);
+      console.log('Recording resumed');
+    } else {
+      // If not paused, start fresh
+      startRecording();
+    }
   };
 
   // Clear transcripts
   const clearTranscripts = () => {
     setTranscripts([]);
+    setPolishError(null);
+  };
+
+  // Handle manual polish request
+  const handleManualPolish = () => {
+    if (!socketRef.current || !sessionId) {
+      console.error('No active session for polishing');
+      setPolishError('No active session');
+      return;
+    }
+
+    if (isPolishing) {
+      console.log('Polish already in progress');
+      return;
+    }
+
+    console.log('Requesting manual polish for session:', sessionId);
+    socketRef.current.emit('polish-current-session');
   };
 
   const value: LiveSessionContextType = {
@@ -233,9 +374,14 @@ export function LiveSessionProvider({ children, settings }: LiveSessionProviderP
     sessionId,
     timer,
     recordingStartTime: recordingStartTimeRef.current,
+    isPolishing,
+    polishError,
     startRecording,
     stopRecording,
+    pauseRecording,
+    resumeRecording,
     clearTranscripts,
+    handleManualPolish,
   };
 
   return (

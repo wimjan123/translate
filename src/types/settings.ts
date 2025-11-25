@@ -1,3 +1,6 @@
+// Session mode type
+export type SessionMode = 'one-way' | 'two-way';
+
 export interface AppSettings {
   // Deepgram Configuration
   deepgramKey: string;
@@ -40,6 +43,10 @@ export interface SocketAuth {
   enableLivePolishing: boolean;
   polishingInterval: number;
   polishingBatchSize: number;
+  // 2-way mode fields
+  sessionMode?: SessionMode;
+  languageA?: string;
+  languageB?: string;
 }
 
 // Transcript segment type (matches Prisma schema)
@@ -50,4 +57,7 @@ export interface TranscriptSegment {
   rawTranslation?: string;  // LibreTranslate instant translation
   polishedTranslation?: string;  // OpenRouter LLM polished translation
   isFinal: boolean;
+  // 2-way mode fields
+  detectedLanguage?: string;  // BCP-47 language code from Deepgram
+  translationDirection?: 'A_to_B' | 'B_to_A';
 }

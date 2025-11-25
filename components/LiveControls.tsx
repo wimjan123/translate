@@ -1,11 +1,19 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Mic, Square } from 'lucide-react';
+import { Mic, Square, Sparkles } from 'lucide-react';
 import { useLiveSession } from '@/context/LiveSessionContext';
 
 export function LiveControls() {
-  const { isRecording, startRecording, stopRecording, clearTranscripts } = useLiveSession();
+  const {
+    isRecording,
+    startRecording,
+    stopRecording,
+    clearTranscripts,
+    handleManualPolish,
+    isPolishing,
+    transcripts
+  } = useLiveSession();
   const [currentTime, setCurrentTime] = useState(new Date());
 
   // Update time every second when recording
@@ -75,15 +83,37 @@ export function LiveControls() {
           )}
         </p>
 
-        {/* Clear Button */}
-        {!isRecording && (
-          <button
-            onClick={clearTranscripts}
-            className="px-4 py-2 text-sm border border-white/10 rounded-lg text-slate-400 hover:text-slate-200 hover:border-white/20 transition-all duration-300"
-          >
-            Clear Transcripts
-          </button>
-        )}
+        {/* Action Buttons */}
+        <div className="flex gap-3 items-center justify-center">
+          {/* Polish Button - Shows during recording */}
+          {isRecording && (
+            <button
+              onClick={handleManualPolish}
+              disabled={isPolishing || !transcripts || transcripts.length === 0}
+              className={`px-4 py-2 text-sm border rounded-lg transition-all duration-300 flex items-center gap-2 ${
+                isPolishing
+                  ? 'border-purple-500/50 text-purple-400 bg-purple-500/10 cursor-not-allowed'
+                  : (!transcripts || transcripts.length === 0)
+                  ? 'border-purple-500/20 text-purple-300 opacity-50 cursor-not-allowed'
+                  : 'border-purple-500/30 text-purple-400 hover:border-purple-500 hover:bg-purple-500/10'
+              }`}
+              title={!transcripts || transcripts.length === 0 ? 'Waiting for transcripts...' : ''}
+            >
+              <Sparkles className={`w-4 h-4 ${isPolishing ? 'animate-pulse' : ''}`} />
+              {isPolishing ? 'Polishing...' : 'Polish with LLM'}
+            </button>
+          )}
+
+          {/* Clear Button - Shows when not recording */}
+          {!isRecording && (
+            <button
+              onClick={clearTranscripts}
+              className="px-4 py-2 text-sm border border-white/10 rounded-lg text-slate-400 hover:text-slate-200 hover:border-white/20 transition-all duration-300"
+            >
+              Clear Transcripts
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

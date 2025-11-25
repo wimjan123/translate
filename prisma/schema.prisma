@@ -25,19 +25,28 @@ model Session {
   inputLanguage     String              @default("fr")   // Source language code
   outputLanguage    String              @default("en")   // Target language code
 
+  // 2-way mode settings
+  mode              String              @default("one-way") // one-way | two-way
+  languageA         String?             // First language in 2-way mode
+  languageB         String?             // Second language in 2-way mode
+
   @@index([createdAt])
 }
 
 model TranscriptSegment {
-  id                  String    @id @default(uuid())
-  sessionId           String
-  session             Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  startTime           DateTime  @default(now()) // Actual timestamp when segment started
-  endTime             DateTime  @default(now()) // Actual timestamp when segment ended
-  originalText        String    // Source language text (from Deepgram)
-  rawTranslation      String?   // LibreTranslate instant translation
-  polishedTranslation String?   // OpenRouter LLM polished translation
-  isFinal             Boolean   @default(true)
+  id                   String    @id @default(uuid())
+  sessionId            String
+  session              Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  startTime            DateTime  @default(now()) // Actual timestamp when segment started
+  endTime              DateTime  @default(now()) // Actual timestamp when segment ended
+  originalText         String    // Source language text (from Deepgram)
+  rawTranslation       String?   // LibreTranslate instant translation
+  polishedTranslation  String?   // OpenRouter LLM polished translation
+  isFinal              Boolean   @default(true)
+
+  // 2-way mode fields
+  detectedLanguage     String?   // BCP-47 language code detected by Deepgram
+  translationDirection String?   // A_to_B | B_to_A
 
   @@index([sessionId, startTime])
 }
